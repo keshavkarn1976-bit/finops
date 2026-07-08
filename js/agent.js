@@ -3,13 +3,14 @@
 // =====================================================================
 const CONFIG = {
   geminiKey: "AIzaSyCiKhIZwv8INTzEmOkgMNAqCGUdfc6ID8w",
-  ghToken:   "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",
+  ghToken:   sessionStorage.getItem("ghToken") || prompt("Enter your GitHub Token"),
   repo:      "keshavkarn1976-bit/finops",
   filePath:  "data/cur_report_updated.csv",
   model:     "gemini-2.5-flash" 
 }; 
 // =====================================================================
-
+if (!sessionStorage.getItem("ghToken")) {
+    sessionStorage.setItem("ghToken", CONFIG.ghToken);
 /**
  * Standard GitHub API headers to prevent 401 errors.
  */
