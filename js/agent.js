@@ -1,15 +1,25 @@
 // =====================================================================
-// EDIT THESE 4 VALUES WITH YOUR REAL CREDENTIALS BEFORE RUNNING
+// EDIT THESE VALUES WITH YOUR REAL CREDENTIALS
 // =====================================================================
 const CONFIG = {
   geminiKey: "AIzaSyCiKhIZwv8INTzEmOkgMNAqCGUdfc6ID8w",
   ghToken:   "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",
   repo:      "keshavkarn1976-bit/finops",
   filePath:  "data/cur_report_updated.csv",
-  // Updated model to a stable, generally available model
   model:     "gemini-2.5-flash" 
 }; 
 // =====================================================================
+
+/**
+ * Standard GitHub API headers to prevent 401 errors.
+ */
+function getGitHubHeaders(token) {
+  return {
+    "Authorization": `Bearer ${token}`,
+    "Accept": "application/vnd.github+json",
+    "Content-Type": "application/json"
+  };
+}
 
 // ---------- logging ----------
 function log(msg, tag) {
@@ -76,8 +86,13 @@ function b64Decode(str) { return decodeURIComponent(escape(atob(str))); }
 // ---------- STEP 1: PERCEIVE ----------
 async function fetchCurFile(c) {
   const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
-  const res = await fetch(url, { headers: { "Authorization": `token ${c.ghToken}` } });
-  if (!res.ok) throw new Error(`GitHub read failed: ${res.status}. Check repo permissions.`);
+  const res = await fetch(url, { headers: getGitHubHeaders(c.ghToken) });
+  
+  if (!res.ok) {
+    const errorDetails = await res.json().catch(() => ({}));
+    throw new Error(`GitHub read failed: ${res.status} (${errorDetails.message || 'Unauthorized'})`);
+  }
+  
   const data = await res.json();
   const content = b64Decode(data.content);
   const { headers, rows } = parseCSV(content);
@@ -118,16 +133,14 @@ async function createIssue(c, description, decision) {
   const url = `https://api.github.com/repos/${c.repo}/issues`;
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Authorization": `token ${c.ghToken}`,
-      "Accept": "application/vnd.github+json"
-    },
+    headers: getGitHubHeaders(c.ghToken),
     body: JSON.stringify({
       title: description.slice(0, 70),
       body: `${description}\n\n**Recommended action:** ${decision.recommended_action}`,
       labels: [decision.category, `savings-${decision.savings_potential}`]
     })
   });
+  
   if (!res.ok) throw new Error(`Issue creation failed: ${res.status}`);
   const data = await res.json();
   return data.html_url;
@@ -145,22 +158,20 @@ async function updateCurFile(c, headers, rows, sha, resourceId, decision) {
   const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
   const res = await fetch(url, {
     method: "PUT",
-    headers: {
-      "Authorization": `token ${c.ghToken}`,
-      "Content-Type": "application/json"
-    },
+    headers: getGitHubHeaders(c.ghToken),
     body: JSON.stringify({
       message: `Agent: triaged ${resourceId}`,
       content: b64Encode(newContent),
       sha: sha
     })
   });
+  
   if (!res.ok) throw new Error(`GitHub write failed: ${res.status}`);
 }
 
 // ---------- THE AGENT LOOP ----------
 async function runAgent() {
-  if (!CONFIG.geminiKey || CONFIG.ghToken.startsWith("PASTE_")) {
+  if (!CONFIG.geminiKey || CONFIG.ghToken.startsWith("YOUR_")) {
     log("Check your CONFIG credentials in agent.js", "error");
     return;
   }
@@ -174,6 +185,7 @@ async function runAgent() {
       log(`--- Round ${round} ---`, "stop");
       const { headers, rows, sha } = await fetchCurFile(CONFIG);
       const row = findPendingRow(rows);
+      
       if (!row) {
         log("No pending items. Agent finished.", "stop");
         break;
