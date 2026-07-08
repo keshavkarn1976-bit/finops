@@ -6,7 +6,7 @@ const CONFIG = {
   ghToken:   "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",
   repo:      "keshavkarn1976-bit/finops",
   filePath:  "data/cur_report_updated.csv"
-};
+}; 
 // =====================================================================
 
 // show masked config on the page so you can visually confirm it's set
