@@ -5,14 +5,16 @@ const CONFIG = {
   geminiKey: "AIzaSyCiKhIZwv8INTzEmOkgMNAqCGUdfc6ID8w",
   ghToken:   "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",
   repo:      "keshavkarn1976-bit/finops",
-  filePath:  "data/cur_report_updated.csv"
+  filePath:  "data/cur_report_updated.csv",
+  // Updated model to a stable, generally available model
+  model:     "gemini-2.5-flash" 
 }; 
 // =====================================================================
-
 
 // ---------- logging ----------
 function log(msg, tag) {
   const el = document.getElementById("log");
+  if (!el) return;
   const line = document.createElement("div");
   line.className = "line" + (tag ? " tag-" + tag : "");
   const time = new Date().toLocaleTimeString();
@@ -20,11 +22,16 @@ function log(msg, tag) {
   el.appendChild(line);
   el.scrollTop = el.scrollHeight;
 }
+
 function clearLog() { document.getElementById("log").innerHTML = ""; }
+
 function setRunning(isRunning) {
-  document.getElementById("runBtn").disabled = isRunning;
-  document.getElementById("statusDot").className = "status-dot" + (isRunning ? " running" : "");
-  document.getElementById("statusText").textContent = isRunning ? "Agent running..." : "Idle";
+  const runBtn = document.getElementById("runBtn");
+  const statusDot = document.getElementById("statusDot");
+  const statusText = document.getElementById("statusText");
+  if (runBtn) runBtn.disabled = isRunning;
+  if (statusDot) statusDot.className = "status-dot" + (isRunning ? " running" : "");
+  if (statusText) statusText.textContent = isRunning ? "Agent running..." : "Idle";
 }
 
 // ---------- CSV helpers ----------
@@ -40,6 +47,7 @@ function splitCSVLine(line) {
   result.push(cur);
   return result;
 }
+
 function parseCSV(text) {
   const lines = text.trim().split("\n");
   const headers = splitCSVLine(lines[0]);
@@ -53,6 +61,7 @@ function parseCSV(text) {
   }
   return { headers, rows };
 }
+
 function toCSV(headers, rows) {
   const escape = v => (v && String(v).includes(",")) ? `"${v}"` : (v ?? "");
   const lines = [headers.join(",")];
@@ -60,7 +69,7 @@ function toCSV(headers, rows) {
   return lines.join("\n");
 }
 
-// ---------- base64 helpers (UTF-8 safe) ----------
+// ---------- base64 helpers ----------
 function b64Encode(str) { return btoa(unescape(encodeURIComponent(str))); }
 function b64Decode(str) { return decodeURIComponent(escape(atob(str))); }
 
@@ -68,12 +77,13 @@ function b64Decode(str) { return decodeURIComponent(escape(atob(str))); }
 async function fetchCurFile(c) {
   const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
   const res = await fetch(url, { headers: { "Authorization": `token ${c.ghToken}` } });
-  if (!res.ok) throw new Error(`GitHub read failed: ${res.status} (check repo name and file path)`);
+  if (!res.ok) throw new Error(`GitHub read failed: ${res.status}. Check repo permissions.`);
   const data = await res.json();
   const content = b64Decode(data.content);
   const { headers, rows } = parseCSV(content);
   return { headers, rows, sha: data.sha };
 }
+
 function findPendingRow(rows) {
   return rows.find(r => r["status"] === "pending");
 }
@@ -83,20 +93,23 @@ async function classifyRow(c, row) {
   const description = `${row["lineItem/ProductCode"]} (${row["lineItem/UsageType"]}), resource ${row["lineItem/ResourceId"]}, cost $${row["lineItem/UnblendedCost"]}: ${row["lineItem/LineItemDescription"]}`;
 
   const prompt = `Classify this AWS cost line item. Respond ONLY as raw JSON, no markdown, no code fences:
-{"category": "idle-resource|oversized|orphaned|misconfigured", "savings_potential": "low|medium|high", "recommended_action": "one sentence"}
-
+{"category": "idle-resource", "savings_potential": "high", "recommended_action": "delete resource"}
 Line item: ${description}`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${c.geminiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${c.model}:generateContent?key=${c.geminiKey}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
   });
-  if (!res.ok) throw new Error(`Gemini call failed: ${res.status}`);
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(`Gemini API Error: ${err.error?.message || res.statusText}`);
+  }
+  
   const data = await res.json();
-  let text = data.candidates[0].content.parts[0].text.trim();
-  text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  const text = data.candidates[0].content.parts[0].text.replace(/```json/g, "").replace(/```/g, "").trim();
   return { description, decision: JSON.parse(text) };
 }
 
@@ -147,10 +160,8 @@ async function updateCurFile(c, headers, rows, sha, resourceId, decision) {
 
 // ---------- THE AGENT LOOP ----------
 async function runAgent() {
-  if (!CONFIG.geminiKey || CONFIG.geminiKey.startsWith("PASTE_") ||
-      !CONFIG.ghToken || CONFIG.ghToken.startsWith("PASTE_") ||
-      !CONFIG.repo || !CONFIG.filePath) {
-    log("CONFIG is not filled in. Edit the CONFIG object at the top of agent.js with your real Gemini key, GitHub token, repo, and file path.", "error");
+  if (!CONFIG.geminiKey || CONFIG.ghToken.startsWith("PASTE_")) {
+    log("Check your CONFIG credentials in agent.js", "error");
     return;
   }
 
@@ -161,30 +172,26 @@ async function runAgent() {
     let round = 1;
     while (true) {
       log(`--- Round ${round} ---`, "stop");
-
       const { headers, rows, sha } = await fetchCurFile(CONFIG);
       const row = findPendingRow(rows);
       if (!row) {
-        log("No pending line items found. Agent deciding it's done. Stopping.", "stop");
+        log("No pending items. Agent finished.", "stop");
         break;
       }
+      
       log(`PERCEIVE: found ${row["lineItem/ResourceId"]}`, "perceive");
-
       const { description, decision } = await classifyRow(CONFIG, row);
-      log(`DECIDE: Gemini classified as ${JSON.stringify(decision)}`, "decide");
-
+      log(`DECIDE: Gemini classified item`, "decide");
       const issueUrl = await createIssue(CONFIG, description, decision);
-      log(`ACT: opened GitHub issue — ${issueUrl}`, "act");
-
+      log(`ACT: opened issue — ${issueUrl}`, "act");
       await updateCurFile(CONFIG, headers, rows, sha, row["lineItem/ResourceId"], decision);
-      log(`UPDATE: committed ${CONFIG.filePath} — row marked done`, "update");
-
+      log(`UPDATE: committed CSV`, "update");
+      
       round++;
-      await new Promise(r => setTimeout(r, 1200)); // be polite to rate limits
+      await new Promise(r => setTimeout(r, 1500)); 
     }
-    log("Agent finished.", "stop");
   } catch (err) {
-    log(`ERROR: ${err.message}`, "error");
+    log(`CRITICAL ERROR: ${err.message}`, "error");
   } finally {
     setRunning(false);
   }
