@@ -3,21 +3,12 @@
 // =====================================================================
 const CONFIG = {
   geminiKey: "AIzaSyCiKhIZwv8INTzEmOkgMNAqCGUdfc6ID8w",
-  ghToken:   "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",
+  ghToken:   "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",
   repo:      "keshavkarn1976-bit/finops",
   filePath:  "data/cur_report_updated.csv"
 }; 
 // =====================================================================
 
-// show masked config on the page so you can visually confirm it's set
-function maskKey(k) {
-  if (!k || k.startsWith("PASTE_")) return "NOT SET";
-  return k.slice(0, 4) + "..." + k.slice(-4);
-}
-document.getElementById("cfgGemini").textContent = maskKey(CONFIG.geminiKey);
-document.getElementById("cfgToken").textContent = maskKey(CONFIG.ghToken);
-document.getElementById("cfgRepo").textContent = CONFIG.repo || "NOT SET";
-document.getElementById("cfgPath").textContent = CONFIG.filePath || "NOT SET";
 
 // ---------- logging ----------
 function log(msg, tag) {
