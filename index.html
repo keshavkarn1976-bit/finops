@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinOps Auto-Triage Agent</title>
+<style>
+  :root {
+    --bg: #0B0F14;
+    --panel: #12181F;
+    --border: #232C36;
+    --text: #E6EDF3;
+    --muted: #8B98A5;
+    --accent: #3FB68B;
+    --warn: #E8A33D;
+    --mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  .subtitle { color: var(--muted); font-size: 14.5px; line-height: 1.5; max-width: 640px; }
+
+  .loop-diagram { display: flex; gap: 8px; margin: 22px 0 30px; flex-wrap: wrap; }
+  .loop-step {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    background: var(--panel);
+  }
+  .loop-arrow { color: var(--border); align-self: center; font-size: 13px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
+  .field input {
+    width: 100%;
+    background: #0D1319;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 11px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .field input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+  button {
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: #1A222B;
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #05130D; border-color: var(--accent); }
+  button.primary:hover { filter: brightness(1.08); }
+
+  #log {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    background: #0D1319;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    height: 340px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  #log .line { margin-bottom: 3px; }
+  #log .tag-perceive { color: #5AB0FF; }
+  #log .tag-decide   { color: var(--accent); }
+  #log .tag-act      { color: var(--warn); }
+  #log .tag-update   { color: #C084FC; }
+  #log .tag-stop     { color: var(--muted); }
+  #log .tag-error    { color: #FF6B6B; }
+
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 8px; }
+  .status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .status-line { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+
+  .warning-box {
+    font-size: 11.5px;
+    color: var(--warn);
+    background: #1A1611;
+    border: 1px solid #3A2E17;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-top: 12px;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Hands-On &middot; Agentic AI &middot; FinOps</div>
+    <h1>FinOps Auto-Triage Agent</h1>
+    <div class="subtitle">
+      Reads pending cost line items straight out of a CSV file living in this GitHub repo,
+      asks Gemini to classify each one, opens a labeled GitHub issue, then commits the CSV
+      back with that row marked done &mdash; repeating until nothing is left pending.
+    </div>
+  </header>
+
+  <div class="loop-diagram">
+    <div class="loop-step">1. PERCEIVE — read CSV from repo</div>
+    <div class="loop-arrow">&rarr;</div>
+    <div class="loop-step">2. DECIDE — ask Gemini</div>
+    <div class="loop-arrow">&rarr;</div>
+    <div class="loop-step">3. ACT — open GitHub issue</div>
+    <div class="loop-arrow">&rarr;</div>
+    <div class="loop-step">4. UPDATE — commit CSV back</div>
+    <div class="loop-arrow">&rarr;</div>
+    <div class="loop-step">repeat, or stop if empty</div>
+  </div>
+
+  <div class="panel">
+    <h2>Configuration</h2>
+    <div class="field-row">
+      <div class="field">
+        <label for="geminiKey">Gemini API Key</label>
+        <input type="password" id="geminiKey" placeholder="AIza...">
+      </div>
+      <div class="field">
+        <label for="ghToken">GitHub Personal Access Token</label>
+        <input type="password" id="ghToken" placeholder="ghp_... (needs repo scope)">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="ghRepo">GitHub Repo (owner/name)</label>
+        <input type="text" id="ghRepo" placeholder="keshavkarn1976-bit/finops">
+      </div>
+      <div class="field">
+        <label for="filePath">CSV File Path in Repo</label>
+        <input type="text" id="filePath" placeholder="data/cur_report_updated.csv">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button onclick="saveConfig()">Save keys (this browser only)</button>
+    </div>
+    <div class="warning-box">
+      ⚠️ This page calls Gemini and GitHub directly from the browser, so these keys are visible
+      to anyone who opens DevTools on this page. Fine for a live classroom demo on a throwaway
+      repo — don't leave real keys committed here if this repo stays public.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Run the Agent</h2>
+    <div class="status-line"><span class="status-dot" id="statusDot"></span><span id="statusText">Idle</span></div>
+    <div class="btn-row">
+      <button class="primary" id="runBtn" onclick="runAgent()">Run Agent</button>
+      <button onclick="clearLog()">Clear Log</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+</div>
+
+<script>
+// ---------- config load/save ----------
+function saveConfig() {
+  ["geminiKey", "ghToken", "ghRepo", "filePath"].forEach(k =>
+    localStorage.setItem(k, document.getElementById(k).value)
+  );
+  log("Saved. Keys stored in this browser only, for demo convenience.", "update");
+}
+function loadConfig() {
+  ["geminiKey", "ghToken", "ghRepo", "filePath"].forEach(k => {
+    const v = localStorage.getItem(k);
+    if (v) document.getElementById(k).value = v;
+  });
+}
+loadConfig();
+
+function cfg() {
+  return {
+    geminiKey: document.getElementById("geminiKey").value.trim(),
+    ghToken:   document.getElementById("ghToken").value.trim(),
+    repo:      document.getElementById("ghRepo").value.trim(),
+    filePath:  document.getElementById("filePath").value.trim(),
+  };
+}
+
+// ---------- logging ----------
+function log(msg, tag) {
+  const el = document.getElementById("log");
+  const line = document.createElement("div");
+  line.className = "line" + (tag ? " tag-" + tag : "");
+  const time = new Date().toLocaleTimeString();
+  line.textContent = `[${time}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() { document.getElementById("log").innerHTML = ""; }
+function setRunning(isRunning) {
+  document.getElementById("runBtn").disabled = isRunning;
+  document.getElementById("statusDot").className = "status-dot" + (isRunning ? " running" : "");
+  document.getElementById("statusText").textContent = isRunning ? "Agent running..." : "Idle";
+}
+
+// ---------- CSV helpers ----------
+function splitCSVLine(line) {
+  const result = [];
+  let cur = "", inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === "," && !inQuotes) { result.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  result.push(cur);
+  return result;
+}
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  const headers = splitCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const values = splitCSVLine(lines[i]);
+    const row = {};
+    headers.forEach((h, idx) => row[h] = values[idx] ?? "");
+    rows.push(row);
+  }
+  return { headers, rows };
+}
+function toCSV(headers, rows) {
+  const escape = v => (v && String(v).includes(",")) ? `"${v}"` : (v ?? "");
+  const lines = [headers.join(",")];
+  rows.forEach(r => lines.push(headers.map(h => escape(r[h])).join(",")));
+  return lines.join("\n");
+}
+
+// ---------- base64 helpers (UTF-8 safe) ----------
+function b64Encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+function b64Decode(str) { return decodeURIComponent(escape(atob(str))); }
+
+// ---------- STEP 1: PERCEIVE ----------
+async function fetchCurFile(c) {
+  const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
+  const res = await fetch(url, { headers: { "Authorization": `token ${c.ghToken}` } });
+  if (!res.ok) throw new Error(`GitHub read failed: ${res.status} (check repo name and file path)`);
+  const data = await res.json();
+  const content = b64Decode(data.content);
+  const { headers, rows } = parseCSV(content);
+  return { headers, rows, sha: data.sha };
+}
+function findPendingRow(rows) {
+  return rows.find(r => r["status"] === "pending");
+}
+
+// ---------- STEP 2: DECIDE ----------
+async function classifyRow(c, row) {
+  const description = `${row["lineItem/ProductCode"]} (${row["lineItem/UsageType"]}), resource ${row["lineItem/ResourceId"]}, cost $${row["lineItem/UnblendedCost"]}: ${row["lineItem/LineItemDescription"]}`;
+
+  const prompt = `Classify this AWS cost line item. Respond ONLY as raw JSON, no markdown, no code fences:
+{"category": "idle-resource|oversized|orphaned|misconfigured", "savings_potential": "low|medium|high", "recommended_action": "one sentence"}
+
+Line item: ${description}`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${c.geminiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+  });
+  if (!res.ok) throw new Error(`Gemini call failed: ${res.status}`);
+  const data = await res.json();
+  let text = data.candidates[0].content.parts[0].text.trim();
+  text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  return { description, decision: JSON.parse(text) };
+}
+
+// ---------- STEP 3: ACT ----------
+async function createIssue(c, description, decision) {
+  const url = `https://api.github.com/repos/${c.repo}/issues`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `token ${c.ghToken}`,
+      "Accept": "application/vnd.github+json"
+    },
+    body: JSON.stringify({
+      title: description.slice(0, 70),
+      body: `${description}\n\n**Recommended action:** ${decision.recommended_action}`,
+      labels: [decision.category, `savings-${decision.savings_potential}`]
+    })
+  });
+  if (!res.ok) throw new Error(`Issue creation failed: ${res.status}`);
+  const data = await res.json();
+  return data.html_url;
+}
+
+// ---------- STEP 4: UPDATE ----------
+async function updateCurFile(c, headers, rows, sha, resourceId, decision) {
+  rows.forEach(r => {
+    if (r["lineItem/ResourceId"] === resourceId) {
+      r["status"] = "done";
+      r["decision"] = JSON.stringify(decision).replace(/,/g, ";");
+    }
+  });
+  const newContent = toCSV(headers, rows);
+  const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Authorization": `token ${c.ghToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: `Agent: triaged ${resourceId}`,
+      content: b64Encode(newContent),
+      sha: sha
+    })
+  });
+  if (!res.ok) throw new Error(`GitHub write failed: ${res.status}`);
+}
+
+// ---------- THE AGENT LOOP ----------
+async function runAgent() {
+  const c = cfg();
+  if (!c.geminiKey || !c.ghToken || !c.repo || !c.filePath) {
+    log("Missing configuration. Fill in all fields and click Save.", "error");
+    return;
+  }
+
+  setRunning(true);
+  log("Agent starting...", "stop");
+
+  try {
+    let round = 1;
+    while (true) {
+      log(`--- Round ${round} ---`, "stop");
+
+      const { headers, rows, sha } = await fetchCurFile(c);
+      const row = findPendingRow(rows);
+      if (!row) {
+        log("No pending line items found. Agent deciding it's done. Stopping.", "stop");
+        break;
+      }
+      log(`PERCEIVE: found ${row["lineItem/ResourceId"]}`, "perceive");
+
+      const { description, decision } = await classifyRow(c, row);
+      log(`DECIDE: Gemini classified as ${JSON.stringify(decision)}`, "decide");
+
+      const issueUrl = await createIssue(c, description, decision);
+      log(`ACT: opened GitHub issue — ${issueUrl}`, "act");
+
+      await updateCurFile(c, headers, rows, sha, row["lineItem/ResourceId"], decision);
+      log(`UPDATE: committed cur_report_updated.csv — row marked done`, "update");
+
+      round++;
+      await new Promise(r => setTimeout(r, 1200)); // be polite to rate limits
+    }
+    log("Agent finished.", "stop");
+  } catch (err) {
+    log(`ERROR: ${err.message}`, "error");
+  } finally {
+    setRunning(false);
+  }
+}
+</script>
+</body>
+</html>
