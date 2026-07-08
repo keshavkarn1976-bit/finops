@@ -63,18 +63,6 @@
     margin: 0 0 16px;
   }
 
-  .config-row {
-    display: flex;
-    justify-content: space-between;
-    font-family: var(--mono);
-    font-size: 12.5px;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .config-row:last-child { border-bottom: none; }
-  .config-row .k { color: var(--muted); }
-  .config-row .v { color: var(--text); }
-
   .btn-row { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
   button {
     font-family: inherit;
@@ -115,17 +103,6 @@
   .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 8px; }
   .status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
   .status-line { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
-
-  .warning-box {
-    font-size: 11.5px;
-    color: var(--warn);
-    background: #1A1611;
-    border: 1px solid #3A2E17;
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin-top: 12px;
-    line-height: 1.4;
-  }
 </style>
 </head>
 <body>
@@ -151,19 +128,6 @@
     <div class="loop-step">4. UPDATE — commit CSV back</div>
     <div class="loop-arrow">&rarr;</div>
     <div class="loop-step">repeat, or stop if empty</div>
-  </div>
-
-  <div class="panel">
-    <h2>Configuration (edit CONFIG in agent.js)</h2>
-    <div class="config-row"><span class="k">Gemini API Key</span><span class="v" id="cfgGemini">—</span></div>
-    <div class="config-row"><span class="k">GitHub Token</span><span class="v" id="cfgToken">—</span></div>
-    <div class="config-row"><span class="k">Repo</span><span class="v" id="cfgRepo">—</span></div>
-    <div class="config-row"><span class="k">File Path</span><span class="v" id="cfgPath">—</span></div>
-    <div class="warning-box">
-      ⚠️ Keys are hardcoded in agent.js, so they're visible to anyone who views this repo's
-      source. Fine for a live classroom demo on a throwaway repo — don't leave real keys
-      committed here if this repo stays public long-term.
-    </div>
   </div>
 
   <div class="panel">
