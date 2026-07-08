@@ -63,20 +63,17 @@
     margin: 0 0 16px;
   }
 
-  .field { margin-bottom: 12px; }
-  .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
-  .field input {
-    width: 100%;
-    background: #0D1319;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 9px 11px;
-    color: var(--text);
+  .config-row {
+    display: flex;
+    justify-content: space-between;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 12.5px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
   }
-  .field input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .config-row:last-child { border-bottom: none; }
+  .config-row .k { color: var(--muted); }
+  .config-row .v { color: var(--text); }
 
   .btn-row { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
   button {
@@ -157,34 +154,15 @@
   </div>
 
   <div class="panel">
-    <h2>Configuration</h2>
-    <div class="field-row">
-      <div class="field">
-        <label for="geminiKey">Gemini API Key</label>
-        <input type="password" id="geminiKey" placeholder="AIzaSyCiKhIZwv8INTzEmOkgMNAqCGUdfc6ID8w">
-      </div>
-      <div class="field">
-        <label for="ghToken">GitHub Personal Access Token</label>
-        <input type="password" id="ghToken" placeholder="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">
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label for="ghRepo">GitHub Repo (owner/name)</label>
-        <input type="text" id="ghRepo" placeholder="keshavkarn1976-bit/finops">
-      </div>
-      <div class="field">
-        <label for="filePath">CSV File Path in Repo</label>
-        <input type="text" id="filePath" placeholder="data/cur_report_updated.csv">
-      </div>
-    </div>
-    <div class="btn-row">
-      <button onclick="saveConfig()">Save keys (this browser only)</button>
-    </div>
+    <h2>Configuration (edit CONFIG in agent.js)</h2>
+    <div class="config-row"><span class="k">Gemini API Key</span><span class="v" id="cfgGemini">—</span></div>
+    <div class="config-row"><span class="k">GitHub Token</span><span class="v" id="cfgToken">—</span></div>
+    <div class="config-row"><span class="k">Repo</span><span class="v" id="cfgRepo">—</span></div>
+    <div class="config-row"><span class="k">File Path</span><span class="v" id="cfgPath">—</span></div>
     <div class="warning-box">
-      ⚠️ This page calls Gemini and GitHub directly from the browser, so these keys are visible
-      to anyone who opens DevTools on this page. Fine for a live classroom demo on a throwaway
-      repo — don't leave real keys committed here if this repo stays public.
+      ⚠️ Keys are hardcoded in agent.js, so they're visible to anyone who views this repo's
+      source. Fine for a live classroom demo on a throwaway repo — don't leave real keys
+      committed here if this repo stays public long-term.
     </div>
   </div>
 
@@ -200,209 +178,6 @@
 
 </div>
 
-<script>
-// ---------- config load/save ----------
-function saveConfig() {
-  ["geminiKey", "ghToken", "ghRepo", "filePath"].forEach(k =>
-    localStorage.setItem(k, document.getElementById(k).value)
-  );
-  log("Saved. Keys stored in this browser only, for demo convenience.", "update");
-}
-function loadConfig() {
-  ["geminiKey", "ghToken", "ghRepo", "filePath"].forEach(k => {
-    const v = localStorage.getItem(k);
-    if (v) document.getElementById(k).value = v;
-  });
-}
-loadConfig();
-
-function cfg() {
-  return {
-    geminiKey: document.getElementById("geminiKey").value.trim(),
-    ghToken:   document.getElementById("ghToken").value.trim(),
-    repo:      document.getElementById("ghRepo").value.trim(),
-    filePath:  document.getElementById("filePath").value.trim(),
-  };
-}
-
-// ---------- logging ----------
-function log(msg, tag) {
-  const el = document.getElementById("log");
-  const line = document.createElement("div");
-  line.className = "line" + (tag ? " tag-" + tag : "");
-  const time = new Date().toLocaleTimeString();
-  line.textContent = `[${time}] ${msg}`;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-}
-function clearLog() { document.getElementById("log").innerHTML = ""; }
-function setRunning(isRunning) {
-  document.getElementById("runBtn").disabled = isRunning;
-  document.getElementById("statusDot").className = "status-dot" + (isRunning ? " running" : "");
-  document.getElementById("statusText").textContent = isRunning ? "Agent running..." : "Idle";
-}
-
-// ---------- CSV helpers ----------
-function splitCSVLine(line) {
-  const result = [];
-  let cur = "", inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') { inQuotes = !inQuotes; continue; }
-    if (ch === "," && !inQuotes) { result.push(cur); cur = ""; continue; }
-    cur += ch;
-  }
-  result.push(cur);
-  return result;
-}
-function parseCSV(text) {
-  const lines = text.trim().split("\n");
-  const headers = splitCSVLine(lines[0]);
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const values = splitCSVLine(lines[i]);
-    const row = {};
-    headers.forEach((h, idx) => row[h] = values[idx] ?? "");
-    rows.push(row);
-  }
-  return { headers, rows };
-}
-function toCSV(headers, rows) {
-  const escape = v => (v && String(v).includes(",")) ? `"${v}"` : (v ?? "");
-  const lines = [headers.join(",")];
-  rows.forEach(r => lines.push(headers.map(h => escape(r[h])).join(",")));
-  return lines.join("\n");
-}
-
-// ---------- base64 helpers (UTF-8 safe) ----------
-function b64Encode(str) { return btoa(unescape(encodeURIComponent(str))); }
-function b64Decode(str) { return decodeURIComponent(escape(atob(str))); }
-
-// ---------- STEP 1: PERCEIVE ----------
-async function fetchCurFile(c) {
-  const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
-  const res = await fetch(url, { headers: { "Authorization": `token ${c.ghToken}` } });
-  if (!res.ok) throw new Error(`GitHub read failed: ${res.status} (check repo name and file path)`);
-  const data = await res.json();
-  const content = b64Decode(data.content);
-  const { headers, rows } = parseCSV(content);
-  return { headers, rows, sha: data.sha };
-}
-function findPendingRow(rows) {
-  return rows.find(r => r["status"] === "pending");
-}
-
-// ---------- STEP 2: DECIDE ----------
-async function classifyRow(c, row) {
-  const description = `${row["lineItem/ProductCode"]} (${row["lineItem/UsageType"]}), resource ${row["lineItem/ResourceId"]}, cost $${row["lineItem/UnblendedCost"]}: ${row["lineItem/LineItemDescription"]}`;
-
-  const prompt = `Classify this AWS cost line item. Respond ONLY as raw JSON, no markdown, no code fences:
-{"category": "idle-resource|oversized|orphaned|misconfigured", "savings_potential": "low|medium|high", "recommended_action": "one sentence"}
-
-Line item: ${description}`;
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${c.geminiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-  });
-  if (!res.ok) throw new Error(`Gemini call failed: ${res.status}`);
-  const data = await res.json();
-  let text = data.candidates[0].content.parts[0].text.trim();
-  text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-  return { description, decision: JSON.parse(text) };
-}
-
-// ---------- STEP 3: ACT ----------
-async function createIssue(c, description, decision) {
-  const url = `https://api.github.com/repos/${c.repo}/issues`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Authorization": `token ${c.ghToken}`,
-      "Accept": "application/vnd.github+json"
-    },
-    body: JSON.stringify({
-      title: description.slice(0, 70),
-      body: `${description}\n\n**Recommended action:** ${decision.recommended_action}`,
-      labels: [decision.category, `savings-${decision.savings_potential}`]
-    })
-  });
-  if (!res.ok) throw new Error(`Issue creation failed: ${res.status}`);
-  const data = await res.json();
-  return data.html_url;
-}
-
-// ---------- STEP 4: UPDATE ----------
-async function updateCurFile(c, headers, rows, sha, resourceId, decision) {
-  rows.forEach(r => {
-    if (r["lineItem/ResourceId"] === resourceId) {
-      r["status"] = "done";
-      r["decision"] = JSON.stringify(decision).replace(/,/g, ";");
-    }
-  });
-  const newContent = toCSV(headers, rows);
-  const url = `https://api.github.com/repos/${c.repo}/contents/${c.filePath}`;
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      "Authorization": `token ${c.ghToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      message: `Agent: triaged ${resourceId}`,
-      content: b64Encode(newContent),
-      sha: sha
-    })
-  });
-  if (!res.ok) throw new Error(`GitHub write failed: ${res.status}`);
-}
-
-// ---------- THE AGENT LOOP ----------
-async function runAgent() {
-  const c = cfg();
-  if (!c.geminiKey || !c.ghToken || !c.repo || !c.filePath) {
-    log("Missing configuration. Fill in all fields and click Save.", "error");
-    return;
-  }
-
-  setRunning(true);
-  log("Agent starting...", "stop");
-
-  try {
-    let round = 1;
-    while (true) {
-      log(`--- Round ${round} ---`, "stop");
-
-      const { headers, rows, sha } = await fetchCurFile(c);
-      const row = findPendingRow(rows);
-      if (!row) {
-        log("No pending line items found. Agent deciding it's done. Stopping.", "stop");
-        break;
-      }
-      log(`PERCEIVE: found ${row["lineItem/ResourceId"]}`, "perceive");
-
-      const { description, decision } = await classifyRow(c, row);
-      log(`DECIDE: Gemini classified as ${JSON.stringify(decision)}`, "decide");
-
-      const issueUrl = await createIssue(c, description, decision);
-      log(`ACT: opened GitHub issue — ${issueUrl}`, "act");
-
-      await updateCurFile(c, headers, rows, sha, row["lineItem/ResourceId"], decision);
-      log(`UPDATE: committed cur_report_updated.csv — row marked done`, "update");
-
-      round++;
-      await new Promise(r => setTimeout(r, 1200)); // be polite to rate limits
-    }
-    log("Agent finished.", "stop");
-  } catch (err) {
-    log(`ERROR: ${err.message}`, "error");
-  } finally {
-    setRunning(false);
-  }
-}
-</script>
+<script src="agent.js"></script>
 </body>
 </html>
