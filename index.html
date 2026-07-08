@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinOps Agent — Ticket Dashboard</title>
+<style>
+  :root {
+    --bg: #0B0F14;
+    --panel: #12181F;
+    --border: #232C36;
+    --text: #E6EDF3;
+    --muted: #8B98A5;
+    --accent: #3FB68B;
+    --mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  h1 { font-size: 26px; margin: 0 0 8px; }
+  .subtitle { color: var(--muted); font-size: 14px; max-width: 640px; line-height: 1.5; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin: 20px 0;
+  }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
+  .field input {
+    width: 100%;
+    background: #0D1319;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 11px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #05130D;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .summary-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 22px 0;
+  }
+  .summary-card {
+    flex: 1;
+    min-width: 140px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .summary-card .num { font-size: 28px; font-weight: 700; }
+  .summary-card .label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .team-block { margin-bottom: 18px; }
+  .team-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .team-name { font-size: 14.5px; font-weight: 600; }
+  .team-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: #0D1319;
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 20px;
+    color: var(--accent);
+  }
+  .bar-track {
+    height: 8px;
+    background: #0D1319;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+  }
+  .bar-fill { height: 100%; background: var(--accent); }
+
+  .ticket-list { display: flex; flex-direction: column; gap: 6px; }
+  .ticket {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 13px;
+    padding: 8px 12px;
+    background: #0D1319;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .ticket a { color: var(--text); text-decoration: none; }
+  .ticket a:hover { color: var(--accent); }
+  .ticket .savings {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  #status { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .error { color: #FF6B6B; }
+
+  details.mapping { margin-top: 6px; }
+  details.mapping summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+  .mapping-table { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .mapping-table div { padding: 3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Hour 4 &middot; FinOps Agent Output</div>
+  <h1>Ticket Dashboard</h1>
+  <div class="subtitle">
+    Reads every issue the agent created in your repo, and groups them by team using the
+    category label Gemini assigned during triage.
+  </div>
+
+  <div class="panel">
+    <div class="field-row">
+      <div class="field">
+        <label for="ghRepo">GitHub Repo (owner/name)</label>
+        <input type="text" id="ghRepo" placeholder="yourname/finops-cleanup">
+      </div>
+      <div class="field">
+        <label for="ghToken">GitHub Token (optional — needed for private repos / higher rate limit)</label>
+        <input type="password" id="ghToken" placeholder="ghp_...">
+      </div>
+    </div>
+    <button id="loadBtn" onclick="loadDashboard()">Load Dashboard</button>
+    <div id="status"></div>
+
+    <details class="mapping">
+      <summary>Which label maps to which team?</summary>
+      <div class="mapping-table" id="mappingTable"></div>
+    </details>
+  </div>
+
+  <div id="summaryRow" class="summary-row"></div>
+  <div id="teamBlocks"></div>
+
+</div>
+
+<script>
+// Category label (set by the agent) -> team that owns that kind of fix.
+// Edit this mapping to match how your organization is actually structured.
+const TEAM_MAP = {
+  "idle-resource":  "FinOps — Idle Resources Team",
+  "oversized":      "Platform Engineering Team",
+  "orphaned":       "Cloud Cleanup Team",
+  "misconfigured":  "Security & Compliance Team"
+};
+const UNMAPPED_TEAM = "General Ops Team";
+
+function renderMappingTable() {
+  const el = document.getElementById("mappingTable");
+  el.innerHTML = Object.entries(TEAM_MAP)
+    .map(([label, team]) => `<div>"${label}"  &rarr;  ${team}</div>`)
+    .join("") + `<div>(any other label)  &rarr;  ${UNMAPPED_TEAM}</div>`;
+}
+renderMappingTable();
+
+function setStatus(msg, isError) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = isError ? "error" : "";
+}
+
+async function fetchAllIssues(repo, token) {
+  const headers = { "Accept": "application/vnd.github+json" };
+  if (token) headers["Authorization"] = `token ${token}`;
+
+  let page = 1;
+  let all = [];
+  while (true) {
+    const url = `https://api.github.com/repos/${repo}/issues?state=all&per_page=100&page=${page}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`GitHub API error ${res.status}: ${body.message || "unknown"}`);
+    }
+    const batch = await res.json();
+    // exclude pull requests — the issues endpoint returns both
+    all = all.concat(batch.filter(i => !i.pull_request));
+    if (batch.length < 100) break;
+    page++;
+  }
+  return all;
+}
+
+function groupByTeam(issues) {
+  const groups = {};
+  issues.forEach(issue => {
+    const labels = issue.labels.map(l => (typeof l === "string" ? l : l.name));
+    const categoryLabel = labels.find(l => TEAM_MAP[l]) || null;
+    const team = categoryLabel ? TEAM_MAP[categoryLabel] : UNMAPPED_TEAM;
+    const savingsLabel = labels.find(l => l.startsWith("savings-")) || "";
+
+    if (!groups[team]) groups[team] = [];
+    groups[team].push({
+      title: issue.title,
+      url: issue.html_url,
+      savings: savingsLabel,
+      created: issue.created_at,
+      state: issue.state
+    });
+  });
+  return groups;
+}
+
+function renderSummary(issues, groups) {
+  const el = document.getElementById("summaryRow");
+  const open = issues.filter(i => i.state === "open").length;
+  const closed = issues.filter(i => i.state === "closed").length;
+  el.innerHTML = `
+    <div class="summary-card"><div class="num">${issues.length}</div><div class="label">Total tickets</div></div>
+    <div class="summary-card"><div class="num">${Object.keys(groups).length}</div><div class="label">Teams involved</div></div>
+    <div class="summary-card"><div class="num">${open}</div><div class="label">Open</div></div>
+    <div class="summary-card"><div class="num">${closed}</div><div class="label">Closed</div></div>
+  `;
+}
+
+function renderTeams(groups, totalCount) {
+  const el = document.getElementById("teamBlocks");
+  const sorted = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+
+  el.innerHTML = sorted.map(([team, tickets]) => {
+    const pct = Math.round((tickets.length / totalCount) * 100);
+    const ticketRows = tickets.map(t => `
+      <div class="ticket">
+        <a href="${t.url}" target="_blank">${t.title}</a>
+        <span class="savings">${t.savings}${t.state === "closed" ? " · closed" : ""}</span>
+      </div>
+    `).join("");
+
+    return `
+      <div class="panel team-block">
+        <div class="team-header">
+          <div class="team-name">${team}</div>
+          <div class="team-count">${tickets.length} ticket${tickets.length === 1 ? "" : "s"}</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="ticket-list">${ticketRows}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function loadDashboard() {
+  const repo = document.getElementById("ghRepo").value.trim();
+  const token = document.getElementById("ghToken").value.trim();
+  const btn = document.getElementById("loadBtn");
+
+  if (!repo) {
+    setStatus("Enter a repo in the form owner/name.", true);
+    return;
+  }
+
+  btn.disabled = true;
+  setStatus("Loading issues from GitHub...");
+  document.getElementById("summaryRow").innerHTML = "";
+  document.getElementById("teamBlocks").innerHTML = "";
+
+  try {
+    const issues = await fetchAllIssues(repo, token);
+    if (issues.length === 0) {
+      setStatus("No issues found in this repo yet. Run the agent first.");
+      btn.disabled = false;
+      return;
+    }
+    const groups = groupByTeam(issues);
+    renderSummary(issues, groups);
+    renderTeams(groups, issues.length);
+    setStatus(`Loaded ${issues.length} ticket(s) from ${repo}.`);
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
