@@ -123,8 +123,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
   }
-  .ticket a { color: var(--text); text-decoration: none; }
-  .ticket a:hover { color: var(--accent); }
+  .ticket .ticket-desc { color: var(--text); }
   .ticket .savings {
     font-family: var(--mono);
     font-size: 11px;
@@ -134,11 +133,6 @@
 
   #status { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
   .error { color: #FF6B6B; }
-
-  details.mapping { margin-top: 6px; }
-  details.mapping summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
-  .mapping-table { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 8px; }
-  .mapping-table div { padding: 3px 0; }
 </style>
 </head>
 <body>
@@ -147,8 +141,9 @@
   <div class="eyebrow">Hour 4 &middot; FinOps Agent Output</div>
   <h1>Ticket Dashboard</h1>
   <div class="subtitle">
-    Reads every issue the agent created in your repo, and groups them by team using the
-    category label Gemini assigned during triage.
+    Reads every ticket the agent filed straight to <code>data/tickets.json</code> in your repo.
+    Each ticket already carries the resolver team the agent assigned during triage &mdash;
+    no re-mapping happens here, this just groups and displays what the agent decided.
   </div>
 
   <div class="panel">
@@ -164,11 +159,6 @@
     </div>
     <button id="loadBtn" onclick="loadDashboard()">Load Dashboard</button>
     <div id="status"></div>
-
-    <details class="mapping">
-      <summary>Which label maps to which team?</summary>
-      <div class="mapping-table" id="mappingTable"></div>
-    </details>
   </div>
 
   <div id="summaryRow" class="summary-row"></div>
@@ -177,23 +167,11 @@
 </div>
 
 <script>
-// Category label (set by the agent) -> team that owns that kind of fix.
-// Edit this mapping to match how your organization is actually structured.
-const TEAM_MAP = {
-  "idle-resource":  "FinOps — Idle Resources Team",
-  "oversized":      "Platform Engineering Team",
-  "orphaned":       "Cloud Cleanup Team",
-  "misconfigured":  "Security & Compliance Team"
-};
-const UNMAPPED_TEAM = "General Ops Team";
-
-function renderMappingTable() {
-  const el = document.getElementById("mappingTable");
-  el.innerHTML = Object.entries(TEAM_MAP)
-    .map(([label, team]) => `<div>"${label}"  &rarr;  ${team}</div>`)
-    .join("") + `<div>(any other label)  &rarr;  ${UNMAPPED_TEAM}</div>`;
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
 }
-renderMappingTable();
 
 function setStatus(msg, isError) {
   const el = document.getElementById("status");
@@ -201,57 +179,38 @@ function setStatus(msg, isError) {
   el.className = isError ? "error" : "";
 }
 
-async function fetchAllIssues(repo, token) {
+async function fetchTickets(repo, token) {
   const headers = { "Accept": "application/vnd.github+json" };
-  if (token) headers["Authorization"] = `token ${token}`;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  let page = 1;
-  let all = [];
-  while (true) {
-    const url = `https://api.github.com/repos/${repo}/issues?state=all&per_page=100&page=${page}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(`GitHub API error ${res.status}: ${body.message || "unknown"}`);
-    }
-    const batch = await res.json();
-    // exclude pull requests — the issues endpoint returns both
-    all = all.concat(batch.filter(i => !i.pull_request));
-    if (batch.length < 100) break;
-    page++;
+  const url = `https://api.github.com/repos/${repo}/contents/data/tickets.json`;
+  const res = await fetch(url, { headers });
+
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`GitHub API error ${res.status}: ${body.message || "unknown"}`);
   }
-  return all;
+  const data = await res.json();
+  const content = decodeURIComponent(escape(atob(data.content))).trim();
+  return content ? JSON.parse(content) : [];
 }
 
-function groupByTeam(issues) {
+function groupByTeam(tickets) {
   const groups = {};
-  issues.forEach(issue => {
-    const labels = issue.labels.map(l => (typeof l === "string" ? l : l.name));
-    const categoryLabel = labels.find(l => TEAM_MAP[l]) || null;
-    const team = categoryLabel ? TEAM_MAP[categoryLabel] : UNMAPPED_TEAM;
-    const savingsLabel = labels.find(l => l.startsWith("savings-")) || "";
-
+  tickets.forEach(t => {
+    const team = t.resolverGroup || "General Ops Team";
     if (!groups[team]) groups[team] = [];
-    groups[team].push({
-      title: issue.title,
-      url: issue.html_url,
-      savings: savingsLabel,
-      created: issue.created_at,
-      state: issue.state
-    });
+    groups[team].push(t);
   });
   return groups;
 }
 
-function renderSummary(issues, groups) {
+function renderSummary(tickets, groups) {
   const el = document.getElementById("summaryRow");
-  const open = issues.filter(i => i.state === "open").length;
-  const closed = issues.filter(i => i.state === "closed").length;
   el.innerHTML = `
-    <div class="summary-card"><div class="num">${issues.length}</div><div class="label">Total tickets</div></div>
+    <div class="summary-card"><div class="num">${tickets.length}</div><div class="label">Total tickets</div></div>
     <div class="summary-card"><div class="num">${Object.keys(groups).length}</div><div class="label">Teams involved</div></div>
-    <div class="summary-card"><div class="num">${open}</div><div class="label">Open</div></div>
-    <div class="summary-card"><div class="num">${closed}</div><div class="label">Closed</div></div>
   `;
 }
 
@@ -263,15 +222,15 @@ function renderTeams(groups, totalCount) {
     const pct = Math.round((tickets.length / totalCount) * 100);
     const ticketRows = tickets.map(t => `
       <div class="ticket">
-        <a href="${t.url}" target="_blank">${t.title}</a>
-        <span class="savings">${t.savings}${t.state === "closed" ? " · closed" : ""}</span>
+        <span class="ticket-desc" title="${escapeHtml(t.recommendedAction)}">${escapeHtml(t.description)}</span>
+        <span class="savings">$${escapeHtml(t.cost)} &middot; ${escapeHtml(t.category)} &middot; ${escapeHtml(t.savingsPotential)} savings</span>
       </div>
     `).join("");
 
     return `
       <div class="panel team-block">
         <div class="team-header">
-          <div class="team-name">${team}</div>
+          <div class="team-name">${escapeHtml(team)}</div>
           <div class="team-count">${tickets.length} ticket${tickets.length === 1 ? "" : "s"}</div>
         </div>
         <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
@@ -292,21 +251,21 @@ async function loadDashboard() {
   }
 
   btn.disabled = true;
-  setStatus("Loading issues from GitHub...");
+  setStatus("Loading tickets from GitHub...");
   document.getElementById("summaryRow").innerHTML = "";
   document.getElementById("teamBlocks").innerHTML = "";
 
   try {
-    const issues = await fetchAllIssues(repo, token);
-    if (issues.length === 0) {
-      setStatus("No issues found in this repo yet. Run the agent first.");
+    const tickets = await fetchTickets(repo, token);
+    if (tickets.length === 0) {
+      setStatus("No tickets found yet. Run the agent first.");
       btn.disabled = false;
       return;
     }
-    const groups = groupByTeam(issues);
-    renderSummary(issues, groups);
-    renderTeams(groups, issues.length);
-    setStatus(`Loaded ${issues.length} ticket(s) from ${repo}.`);
+    const groups = groupByTeam(tickets);
+    renderSummary(tickets, groups);
+    renderTeams(groups, tickets.length);
+    setStatus(`Loaded ${tickets.length} ticket(s) from ${repo}.`);
   } catch (err) {
     setStatus(err.message, true);
   } finally {
