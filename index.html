@@ -112,22 +112,24 @@
     <div class="eyebrow">Hands-On &middot; Agentic AI &middot; FinOps</div>
     <h1>FinOps Auto-Triage Agent</h1>
     <div class="subtitle">
-      Reads pending cost line items straight out of a CSV file living in this GitHub repo,
-      asks Gemini to classify each one, opens a labeled GitHub issue, then commits the CSV
-      back with that row marked done &mdash; repeating until nothing is left pending.
+      Reads every pending cost line item out of a CSV file living in this GitHub repo, batches
+      them (15 at a time) to Gemini for a fixed-taxonomy classification, files each batch as
+      structured tickets straight into <code>data/tickets.json</code> &mdash; each ticket already
+      carrying its resolver team &mdash; then commits the CSV back with those rows marked done.
+      Repeats batch by batch until nothing is left pending.
     </div>
   </header>
 
   <div class="loop-diagram">
     <div class="loop-step">1. PERCEIVE — read CSV from repo</div>
     <div class="loop-arrow">&rarr;</div>
-    <div class="loop-step">2. DECIDE — ask Gemini</div>
+    <div class="loop-step">2. DECIDE — Gemini batch-classifies (fixed categories)</div>
     <div class="loop-arrow">&rarr;</div>
-    <div class="loop-step">3. ACT — open GitHub issue</div>
+    <div class="loop-step">3. ACT — file ticket batch to tickets.json</div>
     <div class="loop-arrow">&rarr;</div>
-    <div class="loop-step">4. UPDATE — commit CSV back</div>
+    <div class="loop-step">4. UPDATE — commit CSV batch as done</div>
     <div class="loop-arrow">&rarr;</div>
-    <div class="loop-step">repeat, or stop if empty</div>
+    <div class="loop-step">repeat per batch, or stop if empty</div>
   </div>
 
   <div class="panel">
